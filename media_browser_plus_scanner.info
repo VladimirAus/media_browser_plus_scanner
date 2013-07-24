@@ -1,0 +1,7 @@
+name = MBP Scanner
+description = Custom utilities provided by the core team to allow easier development.
+package = Media
+core = 7.x
+version = 7.x-1.0
+
+dependencies[] = media_browser_plus

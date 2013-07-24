@@ -1,0 +1,480 @@
+<?php
+
+/**
+ * @file
+ * Media browser plus extention to scan in images and directories.
+ */
+
+/**
+ * Implements hook_block_info().
+ */
+function media_browser_plus_scanner_block_info(){
+  $blocks['media_browser_plus_scanner_block'] = array(
+    'info' => t('MBP Scanner'), //The name that will appear in the block list.
+    'cache' => DRUPAL_CACHE_PER_ROLE, //Default
+    'region' => 'content', // assign block region
+    'status' => 1, // enable the block
+    'properties' => array('administrative' => true,), // assign block region
+    'weight' => -1, // enable the block
+    'visibility' => BLOCK_VISIBILITY_LISTED, 
+    'pages' => 'admin/structure/taxonomy/media_folders',
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function media_browser_plus_scanner_block_view($delta = '') {
+  switch ($delta) {
+    case 'media_browser_plus_scanner_block':
+      $block['subject'] = '<none>';
+      $block['content'] = drupal_get_form('media_browser_plus_scanner_new_media'); 
+    break;
+  }
+  return $block; // dont forget to the return the $block!
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for system_file_system_settings form.
+ *
+ * @ingroup forms
+ * @see system_settings_form()
+ */
+// function media_browser_plus_scanner_form_alter(&$form, &$form_state, $form_id) {
+/*
+function media_browser_plus_scanner_action_form($form, &$form_state) {
+
+  // if(arg(3) == 'media_folders') {
+
+	$form = array();
+
+	$form['mbp_scan'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Scanning'),
+		'#collapsible' => TRUE,
+		'#collapsed' => FALSE,
+		'#group' => 'product_details',
+	);
+
+	$form['mbp_scan']['file_global_path'] = array(
+		'#type' => 'button',
+		'#value' => t('Scan folders'),
+		// '#default_value' => variable_get('file_global_path', 'sites/default/files'),
+		// '#maxlength' => 255,
+		// '#description' => t('Scan folders to recreate physical folder structure at ' ),
+		// '#after_build' => array('system_check_directory'),
+	);
+
+	$default = !empty($form['mbp_scan']['howmany_select']['#value']) ? $form['mbp_scan']['howmany_select']['#value'] : 2;
+
+	$form['mbp_scan']['howmany_select'] = array(
+		'#title' => t('How many checkboxes do you want?'),
+		'#type' => 'select',
+		'#options' => array(0 => 'choose action', 1 => 'scan folders', 2 => 2, 3 => 3, 4 => 4),
+		'#default_value' => $default,
+		'#ajax' => array(
+		  'callback' => 'media_browser_plus_scanner_autocheckboxes_callback',
+		  'wrapper' => 'checkboxes-div-2',
+		  'method' => 'replace',
+		  'effect' => 'fade',
+		),
+		// '#description' => !empty($form_state['values'])?'<pre>'.$form_state['values'].'</pre>':'',
+	);
+
+
+	$form['mbp_scan']['checkboxes_fieldset'] = array(
+		'#title' => t("Generated Checkboxes"),
+		// The prefix/suffix provide the div that we're replacing, named by
+		// #ajax['wrapper'] above.
+		'#prefix' => '<div id="checkboxes-div-2">',
+		'#suffix' => '</div>',
+		'#type' => 'fieldset',
+		'#description' => t('This is where we get automatically generated checkboxes'),
+	);
+
+	// dpm($form_state['values']);
+	$num_checkboxes = !empty($form_state['values']['mbp_scan']['howmany_select']) ? $form_state['values']['mbp_scan']['howmany_select'] : 1;
+	for ($i = 1; $i <= $default; $i++) {
+		$form['mbp_scan']['checkboxes_fieldset']["checkbox$i"] = array(
+		  '#type' => 'checkbox',
+		  '#title' => "Checkbox $i",
+		);
+	}
+
+	return $form;
+  // }
+}
+*/
+
+/**
+* Callback element needs only select the portion of the form to be updated.
+* Since #ajax['callback'] return can be HTML or a renderable array (or an
+* array of commands), we can just return a piece of the form.
+*/
+function media_browser_plus_scanner_autocheckboxes_callback($form, $form_state) {
+  //dpm($form);
+  return $form['mbp_scan']['checkboxes_fieldset'];
+}
+
+function media_browser_plus_scanner_checks() {
+  $result = true;
+  return $result;
+  // @todo: checks for client. Not requited for general module
+
+  if (file_default_scheme() != 'global') {
+    drupal_set_message(t('Media plus browser folder scanner works only with global file scheme. %settings', array('%settings' => l(t('Settings'), 'admin/config/media/file-system'))), 'notice');
+    return false;
+  }
+
+  if (!strlen(variable_get('media_root_folder'))) {
+    drupal_set_message(t('Media plus browser folder is not set. %settings', array('%settings' => l(t('Settings'), 'admin/config/media/media_browser_plus_settings'))), 'error');
+    return false;
+  }
+
+  return $result;
+}
+
+/**
+ * Simple form whose ajax-enabled 'changethis' member causes a text change
+ * in the description of the 'replace_textfield' member.
+ * See @link http://drupal.org/node/262422 Form API Tutorial @endlink
+ */
+function media_browser_plus_scanner_new_media($form, &$form_state) {
+
+  $form = array();
+
+  if (!media_browser_plus_scanner_checks()) {
+    return $form;
+  }
+  
+  $form['#submit'] = array('media_browser_plus_scanner_new_media_submit');
+  
+  $form['mbp_scan'] = array(
+  '#type' => 'fieldset',
+  '#title' => t('Scanning'),
+  '#collapsible' => TRUE,
+  '#collapsed' => FALSE,
+  '#group' => 'product_details',
+  );
+
+  $form['mbp_scan']['changethis'] = array(
+    '#title' => t("Choose something and explain why"),
+    '#type' => 'select',
+    '#default_value' => (!empty($form_state['values']['changethis']))?$form_state['values']['changethis']:0,
+    '#options' => array(
+      0 => 'choose action',
+      1 => 'scan directories',
+      2 => 'scan files',
+    ),
+    '#ajax' => array(
+      // #ajax has two required keys: callback and wrapper.
+      // 'callback' is a function that will be called when this element changes.
+      'callback' => 'media_browser_plus_scanner_new_media_ajax_callback',
+      // 'wrapper' is the HTML id of the page element that will be replaced.
+      'wrapper' => 'replace_new_media_div',
+      // There are also several optional keys - see ajax_example_autocheckboxes
+      // below for details on 'method', 'effect' and 'speed' and
+      // ajax_example_dependent_dropdown for 'event'.
+    ),
+  );
+
+  $form['mbp_scan']['mbps_ignore_fodler'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Ignore folder'),
+    '#default_value' => variable_get('mbps_ignore_fodler', 'styles'),
+    '#size' => 60,
+    '#maxlength' => 512,
+    '#description' => t('Folders to be ignored such as styles. Comma separated list. Cant edit at the moment.' ),
+    '#disabled' => true,
+  );
+
+  $directory_path = file_stream_wrapper_get_instance_by_scheme(file_default_scheme())->getDirectoryPath() . '/' . variable_get('media_root_folder');
+  // This entire form element will be replaced whenever 'changethis' is updated.
+  $form['mbp_scan']['replace_wrapper'] = array(
+    '#type' => 'item',
+    '#prefix' => '<div id="replace_new_media_div">',
+    '#suffix' => '</div>',
+  );
+  $form['mbp_scan']['replace_wrapper']['dirs'] = array(
+    '#type' => 'item',
+    '#title' => t('Directory list: ') . $directory_path,
+    '#markup' => 'Scan folders first',
+    // '#description' => 'Dir folder structure',
+  );
+
+  // An AJAX request calls the form builder function for every change.
+  // We can change how we build the form based on $form_state.
+  if (!empty($form_state['values']['changethis'])) {
+
+    
+    if ($form_state['values']['changethis'] == '1') {
+      $header = array('Folder', 'Exists in media folders');
+    	$rows = array(array('Folder', 'Exists in media folders'));
+
+      // Load taxonomy values
+      $vid = taxonomy_vocabulary_machine_name_load('media_folders')->vid;
+      $tid = reset(taxonomy_get_tree($vid, 0, 1))->tid; // Media root tid
+      
+      $negId = 0;
+      $rowsData = media_browser_plus_scanner_get_dir_tree($directory_path, 6, 1, $vid, $tid, $negId);
+      $rows = media_browser_plus_scanner_theme_table_data_wrap($rowsData);
+      $form['mbp_scan']['replace_wrapper']['dirs']['#markup'] = theme('table', array('header' => $header, 'rows' => $rows));
+
+
+
+      if ($negId < 0) { // any new folders found
+        $form['mbp_scan']['replace_wrapper']['vid'] = array(
+          '#type' => 'textfield',
+          '#value' => $vid,
+        );
+        $form['mbp_scan']['replace_wrapper']['new_folders'] = array(
+          '#type' => 'textfield',
+          '#value' => media_browser_plus_scanner_form_submit_data_wrap($rowsData),
+        );
+        $form['mbp_scan']['replace_wrapper']['submit'] = array(
+          '#type' => 'submit',
+          '#value' => 'Create new folders',
+        );
+      }
+    }
+
+    else if ($form_state['values']['changethis'] == '2') {
+      $header = array('File', 'FID', 'Directory');
+      $rows = array(array('File', 'FID', 'Directory'));
+
+      // Load taxonomy values
+      $vid = taxonomy_vocabulary_machine_name_load('media_folders')->vid;
+      $tid = reset(taxonomy_get_tree($vid, 0, 1))->tid; // Media root tid
+      
+      $negId = 0;
+      $rowsDirsData = media_browser_plus_scanner_get_dir_tree($directory_path, 6, 1, $vid, $tid, $negId);
+      $rowsFilesData = media_browser_plus_scanner_scan_tree_for_images($rowsDirsData);
+      $rows = media_browser_plus_scanner_theme_table_data_wrap_files($rowsFilesData);
+      $form['mbp_scan']['replace_wrapper']['dirs']['#markup'] = theme('table', array('header' => $header, 'rows' => $rows));
+
+      // if ($negId < 0) { // any new folders found
+        $form['mbp_scan']['replace_wrapper']['submit'] = array(
+          '#type' => 'submit',
+          '#value' => 'Make files managed',
+        );
+      // }
+    }
+    // $form['mbp_scan']['replace_wrapper']['dirs']['#description'] = 'YYY';
+  }
+  return $form;
+}
+
+function media_browser_plus_scanner_new_media_submit($form, &$form_state) {
+  
+  $directory_path = file_stream_wrapper_get_instance_by_scheme(file_default_scheme())->getDirectoryPath() . '/' . variable_get('media_root_folder');
+
+  if ($form_state['values']['changethis'] == '1') {
+    $vid = $form_state['values']['vid'];
+    $rawFolders = $form_state['values']['new_folders'];
+    $newFolders = array();
+    foreach (explode('::::', $rawFolders) as $value) {
+      $folderValues = explode(';;;;', $value);
+      $newFolders[$folderValues[1]] = array('name'=>$folderValues[0],'tid' => $folderValues[1],'parent'=>$folderValues[2]);
+    }
+    
+    foreach ($newFolders as $oldTid => $termData) {
+      // Creating terms
+      $term = new stdClass();
+      $term->name = $termData['name'];
+      $term->description = "";
+      $term->vid = $vid;
+      $term->parent = ($termData['parent'] < 0)?$newFolders[$termData['parent']]['tid']:$termData['parent'];
+      taxonomy_term_save($term);
+      $newFolders[$oldTid]['tid'] = $term->tid;
+    }
+
+    drupal_set_message(t('Scanned folder structure recreated!'));
+  }
+  else if ($form_state['values']['changethis'] == '2') { // saving files
+    // Load taxonomy values
+    $vid = taxonomy_vocabulary_machine_name_load('media_folders')->vid;
+    // dpm(taxonomy_get_tree($vid, 0, 1));
+    $tid = reset(taxonomy_get_tree($vid, 0, 1))->tid; // Media root tid
+    
+    $negId = 0;
+    $rowsDirsData = media_browser_plus_scanner_get_dir_tree($directory_path, 6, 1, $vid, $tid, $negId);
+    $rowsFilesData = media_browser_plus_scanner_scan_tree_for_images($rowsDirsData);
+
+    $fileEntity = null;
+    foreach ($rowsFilesData as $file) {
+      if ($file['fid']) { // load managed file if exists
+        $fileEntity = file_load($file['fid']);
+        // check if file is in MFB+ and matches tid
+        if (empty($entity->field_folder[LANGUAGE_NONE][0]['tid']) || 
+          ($entity->field_folder[LANGUAGE_NONE][0]['tid'] != $file['tid']) ||
+          ($entity->status != 1)
+        ) {
+          $fileEntity->field_folder = array(LANGUAGE_NONE => array(array('tid' => $file['tid'])));
+          $fileEntity->status = 1;
+        }
+        else {
+          continue;
+        }
+      }
+      else {
+        if ($file['tid'] > 0) {
+          // create new file/image entity
+          $fileEntity = new stdClass();
+          $fileEntity->status = 1;
+          $fileEntity->uri = $file['uri'];
+          $fileEntity->filename = $file['name'];
+          $fileEntity->uid = 1; // TODO: randomize? Use case specific.
+          $fileEntity->field_folder = array(LANGUAGE_NONE => array(array('tid' => $file['tid'])));
+        }
+      }
+
+      if ($fileEntity) {
+        file_save($fileEntity);
+      }
+    }
+    drupal_set_message(t('Files added...'));
+  }
+}
+
+function media_browser_plus_scanner_get_dir_tree($path, $maxdepth=1, $depth=1, $vid=0, $tid=0, &$negId=0) {
+  $dirs = array();
+  $values = scandir ( $path );
+  $parent = $tid;
+
+  if ($vid == 0) {
+    $vid = taxonomy_vocabulary_machine_name_load('media_folders')->vid;
+  }
+  $tree = array();
+  if ($tid >= 0) { // prevent further tree comapising if -1 returned
+    $tree = taxonomy_get_tree($vid, $tid, 1);
+  }
+  // dpm($tree);
+
+  foreach ($values as $dir) {
+    $newPath = $path.'/'.$dir;
+    $ignoreFolders = explode(',', variable_get('mbps_ignore_fodler', 'styles')); // @todo: case? trim? 
+    if (is_dir($newPath) && (substr($dir, 0 ,1) != '.') && !in_array($dir, $ignoreFolders)) {
+      $tid = media_browser_plus_scanner_match_dir_to_term($dir, $tree);
+      if ($tid < 0) {
+        $negId--;
+        $tid = $negId;
+      }
+      array_push($dirs, array('name' => $dir, 'depth' => $depth, 'tid' => $tid, 'parent' => $parent, 'path' => $path));
+      if ($maxdepth > $depth) {
+        $dirs = array_merge($dirs, media_browser_plus_scanner_get_dir_tree($newPath, $maxdepth, $depth+1, $vid, $tid, $negId));
+      }
+    }
+  }
+  return $dirs;
+}
+
+function media_browser_plus_scanner_scan_tree_for_images($tree) {
+  // global $base_path;
+
+  $files = array();
+  
+  foreach ($tree as $key => $node) {
+    $path = $node['path'].'/'.$node['name'];
+    $fldrContent = file_scan_directory ( $path, '/^.*\.(jpg|jpeg|gif|png)$/i', array('recurse'=> false,));
+    // dpm($path);
+    // dpm($fldrContent);
+    // break;
+    // if ($fldrContent) dpm($fldrContent);
+    $wrapperPath = file_stream_wrapper_get_instance_by_scheme(file_default_scheme())->getDirectoryPath();
+    $scheme = file_default_scheme() .'://';
+
+    foreach ($fldrContent as $file) {
+      $filePath = $path. '/' . $file->filename;
+      // $imgFile->uri = $filePath;
+      
+      $uri = str_replace($wrapperPath.'/', $scheme, $file->uri);
+      $managed = media_browser_plus_scanner_load_file_by_uri($uri);
+      // dpm($managed);
+
+      // if (file_validate_is_image($file)) { // doesnt work for obejcts
+        array_push($files, array('name' => $file->filename, 'depth' => $node['depth'], 'tid' => $node['tid'], 'path' => $path, 'uri' => $uri, 'fid' => (($managed)?($managed->fid):0), ));
+      // }
+    }
+
+  }
+  // dpm($files);
+  return $files;
+}
+
+function media_browser_plus_scanner_match_dir_to_term($dir, $tree) {
+  foreach ($tree as $term) {
+    if ($term->name == $dir) {
+      return $term->tid;
+    }
+  }
+  return -1;
+}
+
+function media_browser_plus_scanner_load_file_by_uri($uri) {
+  // @todo array
+  // Get existing files.
+  $query = new EntityFieldQuery();
+  $files = db_select('file_managed')
+    ->fields('file_managed', array('fid'))
+    ->condition('uri', $uri, '=')
+    ->execute()
+    ->fetchCol();
+
+  // dpm(file_load(reset($files)));
+
+  // $num_pub_updated = 0;
+  if (count($files)) {
+    return file_load(reset($files));
+  }
+
+  return null;
+}
+
+function media_browser_plus_scanner_theme_table_data_wrap($dirs) {
+
+  $newDirs = array();
+  foreach ($dirs as $dir) {
+      $ident = str_repeat('<div class="indentation">&nbsp;</div>', $dir['depth']-1);
+      array_push($newDirs, array($ident . $dir['name'],($dir['tid'] < 0)?'NEW:'.$dir['tid'].'&lt;'.$dir['parent']:($ident . l($dir['name'], 'taxonomy/term/'.$dir['tid']))));
+  }
+  return $newDirs;
+}
+
+function media_browser_plus_scanner_theme_table_data_wrap_files($files) {
+
+  $newFiles = array();
+  foreach ($files as $currentFile) {
+      $ident = str_repeat('<div class="indentation">&nbsp;</div>', $dir['depth']-1);
+      // array_push($newDirs, array($ident . $dir['name'],($dir['tid'] < 0)?'NEW:'.$dir['tid'].'&lt;'.$dir['parent']:($ident . l($dir['name'], 'taxonomy/term/'.$dir['tid']))));
+      array_push($newFiles, array($currentFile['name'], $currentFile['fid'], $currentFile['path'],));
+  }
+  return $newFiles;
+}
+
+function media_browser_plus_scanner_form_submit_data_wrap($dirs) {
+
+  $newDirs = array();
+  $separator = ';;;;';
+  foreach ($dirs as $dir) {
+      if ($dir['tid'] < 0) {
+        array_push($newDirs, $dir['name'].$separator.$dir['tid'].$separator.$dir['parent']);
+      }
+  }
+  return implode('::::',$newDirs);
+}
+
+/**
+ * Callback for ajax_example_simplest.
+ *
+ * On an ajax submit, the form builder function is called again, then the $form
+ * and $form_state are passed to this callback function so it can select which
+ * portion of the form to send on to the client.
+ *
+ * @return renderable array (the textfield element)
+ */
+function media_browser_plus_scanner_new_media_ajax_callback($form, $form_state) {
+  // The form has already been submitted and updated. We can return the replaced
+  // item as it is.
+  return $form['mbp_scan']['replace_wrapper'];
+}
